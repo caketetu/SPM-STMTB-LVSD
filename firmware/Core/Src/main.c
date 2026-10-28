@@ -112,10 +112,15 @@ int16_t ro_sub_version = 0; // サブバージョン番号
 
 //内部変数
 //シリアルデータ
-uint8_t _recv_data;
-uint8_t _rx_buf[256];
-uint8_t _tx_buf[256];
-int _rx_len=0;
+typedef struct {
+  int16_t rx_len;
+  uint8_t recv_data;
+  uint8_t rx_buf[256];
+  uint8_t tx_buf[256];
+} SerialData;
+SerialData serial1;
+SerialData serial2;
+
 //アプリケーション変数
 int16_t rw_dev_id=51; //デバイスID
 //ステータス関連
@@ -341,7 +346,8 @@ int main(void)
 
   ParamLoad();
   SPM_ModbusSetAddress(rw_dev_id);
-  HAL_UART_Receive_IT(&huart2, &_recv_data, 1);
+  HAL_UART_Receive_IT(&huart1, &serial1.recv_data, 1);
+  HAL_UART_Receive_IT(&huart2, &serial2.recv_data, 1);
   HAL_TIM_Base_Start_IT(&htim14); // Start TIM14 for periodic interrupts
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // LED ON
   
@@ -423,18 +429,29 @@ int main(void)
     //   HAL_UART_Transmit(&huart1, TxData, TxDataLength, HAL_MAX_DELAY);
     // }
 
-    //シリアル通信処理
-		if(_rx_len>0){
-			HAL_Delay(10);
-			int16_t tx_len = SPM_ModbusTask(_rx_buf, _rx_len, _tx_buf);
-			HAL_UART_Transmit(&huart2, _tx_buf, tx_len, 100);
-			_rx_len=0;
-      //パルスカウントをリセット
-      _pulse_count = combine_words(rw_pulse_count_h,
-                     rw_pulse_count_l);
-      _pulse_target = combine_words(rw_pulse_target_h,
-                     rw_pulse_target_l);
-		}
+		  if(serial1.rx_len>0){
+			  HAL_Delay(10);
+			  int16_t tx_len = SPM_ModbusTask(serial1.rx_buf, serial1.rx_len, serial1.tx_buf);
+			  HAL_UART_Transmit_IT(&huart1, serial1.tx_buf, tx_len);
+			  serial1.rx_len=0;
+        //パルスカウントをリセット
+        _pulse_count = combine_words(rw_pulse_count_h,
+                      rw_pulse_count_l);
+        _pulse_target = combine_words(rw_pulse_target_h,
+                      rw_pulse_target_l);
+		  }
+
+		  if(serial2.rx_len>0){
+			  HAL_Delay(10);
+			  int16_t tx_len = SPM_ModbusTask(serial2.rx_buf, serial2.rx_len, serial2.tx_buf);
+			  HAL_UART_Transmit_IT(&huart2, serial2.tx_buf, tx_len);
+			  serial2.rx_len=0;
+        //パルスカウントをリセット
+        _pulse_count = combine_words(rw_pulse_count_h,
+                      rw_pulse_count_l);
+        _pulse_target = combine_words(rw_pulse_target_h,
+                      rw_pulse_target_l);
+		  }
 
     //ステータスアップデート
     UpdateStatusInputs();
@@ -584,6 +601,21 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+   if (huart->Instance == USART1)
+   {
+	   serial1.rx_buf[serial1.rx_len] = serial1.recv_data;
+	   serial1.rx_len++;
+       HAL_UART_Receive_IT(&huart1, &serial1.recv_data, 1);
+   }else if (huart->Instance == USART2)
+   {
+	   serial2.rx_buf[serial2.rx_len] = serial2.recv_data;
+	   serial2.rx_len++;
+       HAL_UART_Receive_IT(&huart2, &serial2.recv_data, 1);
+   }
 }
 
 volatile int timer_1s = 0; // タイマーカウンタ
@@ -759,17 +791,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         }
     }
     // ...
-}
-/* USER CODE END 4 */
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-   if (huart->Instance == USART2)
-   {
-	   _rx_buf[_rx_len] = _recv_data;
-	   _rx_len++;
-       HAL_UART_Receive_IT(&huart2, &_recv_data, 1);
-   }
 }
 /* USER CODE END 4 */
 
